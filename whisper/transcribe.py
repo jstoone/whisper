@@ -26,6 +26,8 @@ def transcribe(
     logprob_threshold: Optional[float] = -1.0,
     no_speech_threshold: Optional[float] = 0.6,
     condition_on_previous_text: bool = True,
+    on_language_detected: Optional[callable] = None,
+    on_segment_added: Optional[callable] = None,
     **decode_options,
 ):
     """
@@ -92,6 +94,8 @@ def transcribe(
             segment = pad_or_trim(mel, N_FRAMES).to(model.device).to(dtype)
             _, probs = model.detect_language(segment)
             decode_options["language"] = max(probs, key=probs.get)
+            if on_language_detected is not None:
+                on_language_detected(decode_options["language"])
             if verbose is not None:
                 print(f"Detected language: {LANGUAGES[decode_options['language']].title()}")
 
@@ -150,20 +154,22 @@ def transcribe(
         if len(text.strip()) == 0:  # skip empty text output
             return
 
-        all_segments.append(
-            {
-                "id": len(all_segments),
-                "seek": seek,
-                "start": start,
-                "end": end,
-                "text": text,
-                "tokens": text_tokens.tolist(),
-                "temperature": result.temperature,
-                "avg_logprob": result.avg_logprob,
-                "compression_ratio": result.compression_ratio,
-                "no_speech_prob": result.no_speech_prob,
-            }
-        )
+        segment = {
+            "id": len(all_segments),
+            "seek": seek,
+            "start": start,
+            "end": end,
+            "text": text,
+            "tokens": text_tokens.tolist(),
+            "temperature": result.temperature,
+            "avg_logprob": result.avg_logprob,
+            "compression_ratio": result.compression_ratio,
+            "no_speech_prob": result.no_speech_prob,
+        }
+        all_segments.append(segment)
+        if on_segment_added is not None:
+            on_segment_added(segment, all_segments)
+
         if verbose:
             print(f"[{format_timestamp(start)} --> {format_timestamp(end)}] {text}")
 
