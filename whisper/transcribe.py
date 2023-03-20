@@ -29,6 +29,7 @@ def transcribe(
     condition_on_previous_text: bool = True,
     on_language_detected: Optional[callable] = None,
     on_segment_added: Optional[callable] = None,
+    on_segment_batch_added: Optional[callable] = None,
     initial_prompt: Optional[str] = None,
     **decode_options,
 ):
@@ -183,6 +184,8 @@ def transcribe(
             print(
                 make_safe(f"[{format_timestamp(start)} --> {format_timestamp(end)}] {text}"))
 
+        return segment
+
     # show the progress bar when verbose is False (otherwise the transcribed text will be printed)
     num_frames = mel.shape[-1]
     previous_seek_value = seek
@@ -210,6 +213,7 @@ def transcribe(
                     seek += segment.shape[-1]
                     continue
 
+            segment_batch = []
             timestamp_tokens: torch.Tensor = tokens.ge(
                 tokenizer.timestamp_begin)
             consecutive = torch.where(
@@ -224,13 +228,16 @@ def transcribe(
                     end_timestamp_position = (
                         sliced_tokens[-1].item() - tokenizer.timestamp_begin
                     )
-                    add_segment(
-                        start=timestamp_offset + start_timestamp_position * time_precision,
-                        end=timestamp_offset + end_timestamp_position * time_precision,
-                        text_tokens=sliced_tokens[1:-1],
-                        result=result,
+                    segment_batch.append(
+                        add_segment(
+                            start=timestamp_offset + start_timestamp_position * time_precision,
+                            end=timestamp_offset + end_timestamp_position * time_precision,
+                            text_tokens=sliced_tokens[1:-1],
+                            result=result,
+                        )
                     )
                     last_slice = current_slice
+
                 last_timestamp_position = (
                     tokens[last_slice - 1].item() - tokenizer.timestamp_begin
                 )
@@ -246,11 +253,13 @@ def transcribe(
                     ) - tokenizer.timestamp_begin
                     duration = last_timestamp_position * time_precision
 
-                add_segment(
-                    start=timestamp_offset,
-                    end=timestamp_offset + duration,
-                    text_tokens=tokens,
-                    result=result,
+                segment_batch.append(
+                    add_segment(
+                        start=timestamp_offset,
+                        end=timestamp_offset + duration,
+                        text_tokens=tokens,
+                        result=result,
+                    )
                 )
 
                 seek += segment.shape[-1]
@@ -263,6 +272,8 @@ def transcribe(
             # update progress bar
             pbar.update(min(num_frames, seek) - previous_seek_value)
             previous_seek_value = seek
+            if on_segment_batch_added is not None:
+                on_segment_batch_added(segment_batch, all_segments)
 
     return dict(
         text=tokenizer.decode(all_tokens[len(initial_prompt_tokens):]),
