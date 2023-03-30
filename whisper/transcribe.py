@@ -48,6 +48,8 @@ def transcribe(
     word_timestamps: bool = False,
     prepend_punctuations: str = "\"'“¿([{-",
     append_punctuations: str = "\"'.。,，!！?？:：”)]}、",
+    on_language_detected: Optional[callable] = None,
+    on_segment_batch_added: Optional[callable] = None,
     **decode_options,
 ):
     """
@@ -134,6 +136,8 @@ def transcribe(
             mel_segment = pad_or_trim(mel, N_FRAMES).to(model.device).to(dtype)
             _, probs = model.detect_language(mel_segment)
             decode_options["language"] = max(probs, key=probs.get)
+            if on_language_detected is not None:
+                on_language_detected(decode_options["language"])
             if verbose is not None:
                 print(
                     f"Detected language: {LANGUAGES[decode_options['language']].title()}"
@@ -356,14 +360,15 @@ def transcribe(
                     segment["tokens"] = []
                     segment["words"] = []
 
-            all_segments.extend(
-                [
-                    {"id": i, **segment}
-                    for i, segment in enumerate(
-                        current_segments, start=len(all_segments)
-                    )
-                ]
-            )
+            newest_segments = [
+                {"id": i, **segment}
+                for i, segment in enumerate(
+                    current_segments, start=len(all_segments)
+                )
+            ]
+            all_segments.extend(newest_segments)
+            if on_segment_batch_added is not None:
+                on_segment_batch_added(newest_segments)
             all_tokens.extend(
                 [token for segment in current_segments for token in segment["tokens"]]
             )
